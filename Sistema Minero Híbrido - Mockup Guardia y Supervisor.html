@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sistema Minero Híbrido - Mockup Guardia y Supervisor</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', system-ui, sans-serif; background: #e2e8f0; }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  @keyframes scan { 0% { top: 6%; } 100% { top: 94%; } }
+  .scanline { position: absolute; left: 6%; right: 6%; height: 3px; background: #facc15; box-shadow: 0 0 14px 3px rgba(250,204,21,.7); animation: scan 1.1s ease-in-out infinite alternate; }
+  .hazard { background-image: repeating-linear-gradient(-45deg, #facc15 0 12px, #1e293b 12px 24px); }
+  @keyframes pop { from { transform: scale(.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .pop { animation: pop .25s ease-out; }
+  button:focus-visible { outline: 3px solid #2563eb; outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef } = React;
+
+/* ---------- Iconos (SVG en línea) ---------- */
+const P = {
+  check: 'M5 13l4 4L19 7',
+  x: 'M6 6l12 12M18 6L6 18',
+  alert: 'M12 9v4m0 4h.01M10.3 3.9L2.4 18a2 2 0 001.7 3h15.8a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z',
+  wifioff: 'M3 3l18 18M8.5 16.4a5 5 0 017 0M5 12.9a10 10 0 015.2-2.7M19 12.9a10 10 0 00-2.3-1.7M12 20h.01',
+  wifi: 'M8.5 16.4a5 5 0 017 0M5 12.9a10 10 0 0114 0M2 9.4a15 15 0 0120 0M12 20h.01',
+  scan: 'M4 8V5a1 1 0 011-1h3M16 4h3a1 1 0 011 1v3M20 16v3a1 1 0 01-1 1h-3M8 20H5a1 1 0 01-1-1v-3M4 12h16',
+  file: 'M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6',
+  truck: 'M3 6h11v10H3zM14 9h4l3 3v4h-7M7 18.5h.01M17 18.5h.01',
+  chart: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
+  box: 'M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8',
+  clock: 'M12 7v5l3 2M12 21a9 9 0 100-18 9 9 0 000 18z',
+  shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
+  grid: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
+  cloud: 'M7 18a4 4 0 010-8 5 5 0 019.7-1A4.5 4.5 0 0117 18z',
+  refresh: 'M4 4v6h6M20 20v-6h-6M5 14a8 8 0 0014 3M19 10A8 8 0 005 7',
+  cpu: 'M9 9h6v6H9zM4 9h2M4 15h2M18 9h2M18 15h2M9 4v2M15 4v2M9 18v2M15 18v2',
+  users: 'M16 20v-2a4 4 0 00-4-4H7a4 4 0 00-4 4v2M9.5 10a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM21 20v-2a4 4 0 00-3-3.9M16 3.1a3.5 3.5 0 010 6.8',
+};
+const Icon = ({ name, className = 'w-6 h-6', stroke = 2 }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d={P[name]} />
+  </svg>
+);
+
+/* ---------- Datos de ejemplo ---------- */
+const SCENARIOS = {
+  ok: {
+    label: 'Todo coincide',
+    qr: { guia: 'GT-2026-00482', contrato: 'C-021', placa: 'ABC-123', ton: 18.0 },
+    cam: { placa: 'ABC-123', ton: 17.6, conf: 98 },
+    odoo: { placa: 'ABC-123', ton: 18.0, estado: 'Aprobada' },
+  },
+  placa: {
+    label: 'Placa distinta',
+    qr: { guia: 'GT-2026-00482', contrato: 'C-021', placa: 'ABC-123', ton: 18.0 },
+    cam: { placa: 'XYZ-789', ton: 17.9, conf: 96 },
+    odoo: { placa: 'ABC-123', ton: 18.0, estado: 'Aprobada' },
+  },
+  carga: {
+    label: 'Carga excedida',
+    qr: { guia: 'GT-2026-00482', contrato: 'C-021', placa: 'ABC-123', ton: 18.0 },
+    cam: { placa: 'ABC-123', ton: 24.8, conf: 94 },
+    odoo: { placa: 'ABC-123', ton: 18.0, estado: 'Aprobada' },
+  },
+};
+
+const PENDING_SEED = [
+  { id: 'GT-2026-00490', contrato: 'C-014', placa: 'PBA-4410', ton: 16.0, hora: '11:42' },
+  { id: 'GT-2026-00491', contrato: 'C-027', placa: 'GSD-2087', ton: 20.0, hora: '11:48' },
+  { id: 'GT-2026-00492', contrato: 'C-021', placa: 'ABC-123', ton: 18.0, hora: '11:55' },
+  { id: 'GT-2026-00493', contrato: 'C-033', placa: 'PCK-9132', ton: 14.5, hora: '12:03' },
+  { id: 'GT-2026-00494', contrato: 'C-014', placa: 'PBD-7765', ton: 17.0, hora: '12:11' },
+  { id: 'GT-2026-00495', contrato: 'C-027', placa: 'GRT-5521', ton: 19.0, hora: '12:19' },
+  { id: 'GT-2026-00496', contrato: 'C-033', placa: 'PAQ-3308', ton: 15.5, hora: '12:26' },
+];
+
+const MINEROS_SEED = [
+  { contrato: 'C-014', ton: 148.0 },
+  { contrato: 'C-021', ton: 121.5 },
+  { contrato: 'C-027', ton: 98.0 },
+  { contrato: 'C-033', ton: 45.0 },
+];
+
+const fmt = (n) => n.toLocaleString('es-EC', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const nowHM = () => new Date().toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' });
+
+function evaluate(sc) {
+  const placaOk = sc.cam.placa === sc.qr.placa && sc.odoo.placa === sc.qr.placa;
+  const dev = (sc.cam.ton - sc.qr.ton) / sc.qr.ton;
+  const cargaOk = Math.abs(dev) <= 0.1;
+  const ok = placaOk && cargaOk;
+  let msg = 'Paso autorizado';
+  let detail = 'QR, cámara y Odoo coinciden. Puede registrar la salida.';
+  if (!placaOk) {
+    msg = 'Alerta: Placa no coincide con la guía';
+    detail = `Cámara leyó ${sc.cam.placa}; la guía ${sc.qr.guia} corresponde a ${sc.qr.placa}.`;
+  } else if (!cargaOk) {
+    msg = 'Alerta: Carga mayor a la declarada';
+    detail = `Estimación de ${fmt(sc.cam.ton)} t frente a ${fmt(sc.qr.ton)} t declaradas (+${Math.round(dev * 100)}%).`;
+  }
+  return { placaOk, cargaOk, ok, msg, detail };
+}
+
+/* ---------- QR simulado ---------- */
+function QRCode({ size = 168 }) {
+  const n = 25;
+  const cells = useMemo(() => {
+    let s = 482;
+    const rnd = () => { s = (s * 1664525 + 1013904223) % 4294967296; return s / 4294967296; };
+    const finder = (r, c) => {
+      const inBox = (r0, c0) => r >= r0 && r < r0 + 7 && c >= c0 && c < c0 + 7;
+      const origin = inBox(0, 0) ? [0, 0] : inBox(0, n - 7) ? [0, n - 7] : inBox(n - 7, 0) ? [n - 7, 0] : null;
+      if (!origin) return null;
+      const rr = r - origin[0], cc = c - origin[1];
+      const ring = Math.max(Math.abs(rr - 3), Math.abs(cc - 3));
+      return ring === 3 || ring <= 1;
+    };
+    const out = [];
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+      const f = finder(r, c);
+      const near = (r < 8 && c < 8) || (r < 8 && c > n - 9) || (r > n - 9 && c < 8);
+      const dark = f !== null ? f : near ? false : rnd() > 0.5;
+      if (dark) out.push([r, c]);
+    }
+    return out;
+  }, []);
+  const u = size / n;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="Código QR de la guía de transporte">
+      <rect width={size} height={size} fill="#f8fafc" rx="6" />
+      {cells.map(([r, c]) => <rect key={r + '-' + c} x={c * u} y={r * u} width={u + 0.4} height={u + 0.4} fill="#0f172a" />)}
+    </svg>
+  );
+}
+
+/* ---------- Cámara simulada (placa + carga) ---------- */
+function CameraTile({ plate, conf, ton, bad }) {
+  return (
+    <svg viewBox="0 0 220 130" className="w-full h-full" role="img" aria-label={`Cámara: placa ${plate}, carga estimada ${ton} toneladas`}>
+      <defs>
+        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#475569" /><stop offset="1" stopColor="#1e293b" /></linearGradient>
+      </defs>
+      <rect width="220" height="130" fill="url(#sky)" />
+      <rect y="108" width="220" height="22" fill="#0f172a" />
+      {/* tolva con material */}
+      <path d="M38 22 L182 22 L176 60 L44 60 Z" fill="#78716c" />
+      <path d="M44 22 Q62 8 82 20 Q104 4 128 18 Q152 6 176 22 Z" fill="#a8a29e" />
+      {/* carrocería */}
+      <rect x="34" y="60" width="152" height="40" rx="4" fill="#facc15" />
+      <rect x="34" y="92" width="152" height="8" fill="#ca8a04" />
+      {/* ruedas */}
+      <rect x="44" y="98" width="26" height="16" rx="4" fill="#020617" />
+      <rect x="150" y="98" width="26" height="16" rx="4" fill="#020617" />
+      {/* placa */}
+      <rect x="82" y="70" width="56" height="20" rx="2" fill="#f8fafc" />
+      <text x="110" y="85" textAnchor="middle" fontSize="12" fontWeight="700" fill="#0f172a" fontFamily="JetBrains Mono, monospace">{plate}</text>
+      <rect x="77" y="65" width="66" height="30" fill="none" stroke={bad ? '#f87171' : '#4ade80'} strokeWidth="2" strokeDasharray="5 3" />
+      <rect x="77" y="52" width="60" height="13" fill={bad ? '#dc2626' : '#16a34a'} />
+      <text x="82" y="62" fontSize="9" fontWeight="700" fill="#fff">Placa {conf}%</text>
+      <rect x="40" y="24" width="140" height="34" fill="none" stroke="#38bdf8" strokeWidth="1.5" strokeDasharray="5 3" />
+    </svg>
+  );
+}
+
+/* ---------- Vista móvil: guardia ---------- */
+function PhoneApp({ offline, setOffline, queue, actions }) {
+  const [scenario, setScenario] = useState('ok');
+  const [phase, setPhase] = useState('idle'); // idle | scanning | done
+  const [decision, setDecision] = useState(null); // null | salida | retenido
+  const timer = useRef(null);
+  const sc = SCENARIOS[scenario];
+  const res = useMemo(() => evaluate(sc), [scenario]);
+
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  const scan = () => {
+    if (phase === 'scanning') return;
+    setDecision(null);
+    setPhase('scanning');
+    timer.current = setTimeout(() => setPhase('done'), 1400);
+  };
+  const pick = (k) => { clearTimeout(timer.current); setScenario(k); setPhase('idle'); setDecision(null); };
+  const next = () => { setPhase('idle'); setDecision(null); };
+
+  const doExit = () => { actions.exit(sc.qr, offline); setDecision('salida'); };
+  const doHold = () => { actions.hold(sc.qr, sc.cam, res.msg, offline); setDecision('retenido'); };
+
+  const rows = [
+    { src: 'QR de la guía', placa: sc.qr.placa, ton: sc.qr.ton, badP: false, badC: false },
+    { src: 'Cámara IA', placa: sc.cam.placa, ton: sc.cam.ton, badP: sc.cam.placa !== sc.qr.placa, badC: !res.cargaOk },
+    { src: offline ? 'Odoo (caché local)' : 'Odoo (en línea)', placa: sc.odoo.placa, ton: sc.odoo.ton, badP: sc.odoo.placa !== sc.qr.placa, badC: false },
+  ];
+
+  return (
+    <div className="mx-auto w-[390px] h-[844px] rounded-[44px] bg-slate-900 p-[10px] shadow-2xl ring-1 ring-slate-700 shrink-0">
+      <div className="relative w-full h-full rounded-[34px] overflow-hidden bg-slate-100 flex flex-col">
+
+        {/* Encabezado */}
+        <header className="bg-slate-800 text-white px-4 pt-4 pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] uppercase tracking-widest text-yellow-300 font-semibold">Punto de control</p>
+              <h1 className="text-lg font-bold leading-tight">Salida Norte - Garita 1</h1>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-slate-200">
+              <Icon name="shield" className="w-5 h-5 text-yellow-300" />
+              <span>Turno 06:00 - 14:00</span>
+            </div>
+          </div>
+        </header>
+
+        {/* Indicador offline */}
+        <div className={`flex items-center justify-between gap-2 px-4 py-2 text-sm font-semibold ${offline ? 'bg-yellow-300 text-slate-900' : 'bg-slate-200 text-slate-700'}`}>
+          <div className="flex items-center gap-2 min-w-0">
+            <Icon name={offline ? 'wifioff' : 'wifi'} className="w-5 h-5 shrink-0" />
+            <span className="truncate">{offline ? `Modo offline activo${queue ? ` - ${queue} en cola` : ''}` : 'En línea - sincronizado'}</span>
+          </div>
+          <button onClick={() => setOffline(!offline)} className="shrink-0 min-h-[36px] px-3 rounded-lg bg-slate-900/90 text-white text-xs font-semibold" aria-label="Simular cambio de conectividad">
+            {offline ? 'Simular señal' : 'Simular sin señal'}
+          </button>
+        </div>
+
+        {/* Escáner: mitad superior */}
+        <section className="relative h-[290px] shrink-0 bg-slate-950 overflow-hidden" aria-label="Escáner QR">
+          <div className="absolute inset-0 opacity-40" style={{ background: 'radial-gradient(circle at 50% 45%, #334155 0%, #020617 70%)' }} />
+          <div className="absolute left-1/2 top-[44%] -translate-x-1/2 -translate-y-1/2 w-[212px] h-[212px] flex items-center justify-center">
+            <div className={phase === 'idle' ? 'opacity-60' : ''}><QRCode size={168} /></div>
+            {/* esquinas */}
+            {[['top-0 left-0', 'border-t-4 border-l-4 rounded-tl-xl'], ['top-0 right-0', 'border-t-4 border-r-4 rounded-tr-xl'], ['bottom-0 left-0', 'border-b-4 border-l-4 rounded-bl-xl'], ['bottom-0 right-0', 'border-b-4 border-r-4 rounded-br-xl']].map(([pos, b]) => (
+              <span key={pos} className={`absolute w-9 h-9 ${pos} ${b} ${phase === 'done' ? (res.ok ? 'border-green-400' : 'border-red-500') : 'border-yellow-300'}`} />
+            ))}
+            {phase === 'scanning' && <span className="scanline" />}
+          </div>
+          <div className="absolute bottom-0 inset-x-0 px-4 py-2 bg-gradient-to-t from-black/80 to-transparent text-center">
+            <p className="text-sm font-semibold text-white">
+              {phase === 'idle' && 'Apunte al QR de la guía de transporte'}
+              {phase === 'scanning' && 'Leyendo guía y analizando vehículo...'}
+              {phase === 'done' && `Guía ${sc.qr.guia} leída - Contrato ${sc.qr.contrato}`}
+            </p>
+          </div>
+          <button onClick={scan} disabled={phase === 'scanning'} className="absolute top-3 right-3 min-h-[44px] px-4 rounded-xl bg-yellow-300 text-slate-900 font-bold text-sm flex items-center gap-2 disabled:opacity-60">
+            <Icon name="scan" className="w-5 h-5" />
+            {phase === 'done' ? 'Escanear de nuevo' : 'Escanear'}
+          </button>
+        </section>
+
+        {/* Validación de IA: mitad inferior */}
+        <section className="flex-1 min-h-0 overflow-y-auto bg-slate-100 px-4 pt-3 pb-4" aria-label="Validación de IA">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2"><Icon name="cpu" className="w-5 h-5 text-blue-700" />Validación de IA</h2>
+            <span className="text-[11px] font-semibold text-blue-800 bg-blue-100 rounded-full px-2 py-1">Modelo local</span>
+          </div>
+
+          {phase !== 'done' ? (
+            <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-white p-5 text-center">
+              <div className="mx-auto w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 mb-2"><Icon name="truck" className="w-6 h-6" /></div>
+              <p className="font-semibold text-slate-800">{phase === 'scanning' ? 'Procesando imagen de cámara...' : 'Esperando lectura del QR'}</p>
+              <p className="text-sm text-slate-600 mt-1">Se compararán placa y carga contra la guía y Odoo.</p>
+              <div className="mt-4 text-left">
+                <p className="text-xs font-semibold text-slate-600 mb-1">Simular resultado:</p>
+                <div className="flex gap-1.5" role="group" aria-label="Escenario de simulación">
+                  {Object.entries(SCENARIOS).map(([k, v]) => (
+                    <button key={k} onClick={() => pick(k)} aria-pressed={scenario === k} className={`flex-1 min-h-[44px] rounded-lg text-xs font-semibold px-1 ${scenario === k ? 'bg-slate-800 text-white' : 'bg-slate-200 text-slate-800'}`}>{v.label}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="pop space-y-3">
+              {/* Banner resultado */}
+              <div className={`rounded-2xl p-4 flex items-start gap-3 ${res.ok ? 'bg-green-700 text-white' : 'bg-red-700 text-white'}`} role="alert">
+                <div className="w-11 h-11 rounded-full bg-white/20 flex items-center justify-center shrink-0"><Icon name={res.ok ? 'check' : 'alert'} className="w-7 h-7" stroke={3} /></div>
+                <div>
+                  <p className="text-lg font-extrabold leading-tight">{res.msg}</p>
+                  <p className="text-sm mt-1 text-white/90">{res.detail}</p>
+                </div>
+              </div>
+
+              {/* Cámara + lectura */}
+              <div className="flex gap-3 bg-white rounded-2xl p-2 border border-slate-200">
+                <div className="w-[150px] h-[88px] rounded-xl overflow-hidden shrink-0"><CameraTile plate={sc.cam.placa} conf={sc.cam.conf} ton={sc.cam.ton} bad={!res.placaOk} /></div>
+                <div className="min-w-0 flex flex-col justify-center">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-600 font-semibold">Placa detectada</p>
+                  <p className={`mono text-2xl font-bold leading-none ${res.placaOk ? 'text-slate-900' : 'text-red-700'}`}>{sc.cam.placa}</p>
+                  <p className="text-[11px] uppercase tracking-wide text-slate-600 font-semibold mt-2">Carga estimada</p>
+                  <p className={`text-xl font-extrabold leading-none ${res.cargaOk ? 'text-slate-900' : 'text-red-700'}`}>{fmt(sc.cam.ton)} t</p>
+                </div>
+              </div>
+
+              {/* Tabla de cotejo */}
+              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                <div className="grid grid-cols-[1.5fr_1fr_.8fr] bg-slate-200 text-[11px] font-bold uppercase tracking-wide text-slate-700 px-3 py-1.5"><span>Fuente</span><span>Placa</span><span className="text-right">Carga</span></div>
+                {rows.map((r) => (
+                  <div key={r.src} className="grid grid-cols-[1.5fr_1fr_.8fr] items-center px-3 py-2 text-sm border-t border-slate-100">
+                    <span className="font-semibold text-slate-800 pr-1">{r.src}</span>
+                    <span className={`mono font-bold ${r.badP ? 'text-red-700' : 'text-slate-900'}`}>{r.placa}</span>
+                    <span className={`text-right font-bold ${r.badC ? 'text-red-700' : 'text-slate-900'}`}>{fmt(r.ton)} t</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Acciones */}
+              {decision === null ? (
+                <div className="space-y-2">
+                  {res.ok ? (
+                    <button onClick={doExit} className="w-full min-h-[60px] rounded-2xl bg-green-700 text-white text-lg font-extrabold flex items-center justify-center gap-2"><Icon name="check" className="w-6 h-6" stroke={3} />Registrar salida</button>
+                  ) : (
+                    <>
+                      <button onClick={doHold} className="w-full min-h-[60px] rounded-2xl bg-red-700 text-white text-lg font-extrabold flex items-center justify-center gap-2"><Icon name="alert" className="w-6 h-6" />Retener y avisar al supervisor</button>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className={`rounded-2xl p-3 text-sm font-semibold ${decision === 'salida' ? 'bg-green-100 text-green-900' : 'bg-red-100 text-red-900'}`}>
+                    {decision === 'salida' ? 'Salida registrada' : 'Vehículo retenido y supervisor notificado'}
+                    {offline ? ' - se enviará a Odoo al recuperar señal.' : ' - sincronizado con Odoo.'}
+                  </div>
+                  <button onClick={next} className="w-full min-h-[56px] rounded-2xl bg-slate-800 text-white text-base font-bold">Siguiente vehículo</button>
+                </div>
+              )}
+              <div>
+                <p className="text-xs font-semibold text-slate-600 mb-1">Simular otro resultado:</p>
+                <div className="flex gap-1.5">
+                  {Object.entries(SCENARIOS).map(([k, v]) => (
+                    <button key={k} onClick={() => pick(k)} aria-pressed={scenario === k} className={`flex-1 min-h-[44px] rounded-lg text-xs font-semibold px-1 ${scenario === k ? 'bg-slate-800 text-white' : 'bg-slate-200 text-slate-800'}`}>{v.label}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Vista escritorio: supervisor (Odoo) ---------- */
+const NAV = [
+  { icon: 'grid', label: 'Resumen', active: true },
+  { icon: 'file', label: 'Guías de transporte' },
+  { icon: 'users', label: 'Contratos mineros' },
+  { icon: 'truck', label: 'Control de salidas' },
+  { icon: 'chart', label: 'Reportes' },
+];
+
+function KPI({ icon, label, value, unit, sub, tone }) {
+  const tones = {
+    amber: 'bg-yellow-100 text-yellow-900 ring-yellow-300',
+    blue: 'bg-blue-100 text-blue-900 ring-blue-300',
+    slate: 'bg-slate-200 text-slate-900 ring-slate-300',
+  };
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className={`w-11 h-11 rounded-xl ring-1 flex items-center justify-center ${tones[tone]}`}><Icon name={icon} className="w-6 h-6" /></div>
+        <p className="text-sm font-semibold text-slate-700 leading-tight">{label}</p>
+      </div>
+      <p className="mt-4 text-4xl font-extrabold text-slate-900 tracking-tight">{value}<span className="text-xl font-bold text-slate-600 ml-1">{unit}</span></p>
+      <p className="mt-1 text-sm text-slate-600">{sub}</p>
+    </div>
+  );
+}
+
+function Dashboard({ pending, setPending, tons, mineros, log, queue, offline, toast, setToast }) {
+  const concesion = tons * 0.25;
+  const decide = (g, ok) => {
+    setPending(pending.filter((p) => p.id !== g.id));
+    setToast(ok ? `Guía ${g.id} aprobada. Código QR generado.` : `Guía ${g.id} rechazada.`);
+  };
+  const maxM = Math.max(...mineros.map((m) => m.ton));
+  const dateStr = new Date().toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  return (
+    <div className="flex min-h-[760px] rounded-2xl overflow-hidden border border-slate-300 shadow-2xl bg-slate-100">
+      {/* Menú lateral */}
+      <aside className="w-[210px] bg-slate-800 text-slate-200 flex flex-col shrink-0">
+        <div className="px-4 py-4 flex items-center gap-2 border-b border-slate-700">
+          <div className="w-9 h-9 rounded-lg hazard shrink-0" aria-hidden="true" />
+          <div><p className="text-sm font-extrabold text-white leading-tight">Control Minero</p><p className="text-[11px] text-slate-400">Módulo Concesión</p></div>
+        </div>
+        <nav className="p-2 space-y-1 flex-1">
+          {NAV.map((n) => (
+            <button key={n.label} className={`w-full min-h-[44px] flex items-center gap-3 px-3 rounded-lg text-sm font-semibold text-left ${n.active ? 'bg-blue-700 text-white' : 'hover:bg-slate-700'}`}>
+              <Icon name={n.icon} className="w-5 h-5 shrink-0" />{n.label}
+            </button>
+          ))}
+        </nav>
+        <div className="p-3 border-t border-slate-700 text-xs text-slate-300">
+          <p className="font-semibold text-white">Supervisor de concesión</p>
+          <p>Sesión activa</p>
+        </div>
+      </aside>
+
+      {/* Contenido */}
+      <main className="flex-1 min-w-0 flex flex-col">
+        <div className="bg-white border-b border-slate-200 px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs text-slate-600">Control Minero / Resumen operativo</p>
+            <h2 className="text-xl font-extrabold text-slate-900">Panel del Supervisor</h2>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <span className="capitalize text-slate-700 font-medium">{dateStr}</span>
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 font-semibold ${queue > 0 ? 'bg-yellow-200 text-yellow-900' : 'bg-green-100 text-green-900'}`}>
+              <Icon name={queue > 0 ? 'refresh' : 'cloud'} className="w-4 h-4" />
+              {queue > 0 ? `${queue} registros por sincronizar` : 'Garitas sincronizadas'}
+            </span>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-5 overflow-auto">
+          {toast && (
+            <div className="pop flex items-center justify-between gap-3 rounded-xl bg-blue-700 text-white px-4 py-3 text-sm font-semibold" role="status">
+              <span>{toast}</span>
+              <button onClick={() => setToast('')} className="min-h-[36px] px-3 rounded-lg bg-white/20">Cerrar</button>
+            </div>
+          )}
+
+          {/* KPIs */}
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-4">
+            <KPI icon="file" tone="amber" label="Guías pendientes de aprobación" value={pending.length} unit="guías" sub={pending.length ? 'Requieren revisión del supervisor' : 'Sin guías por revisar'} />
+            <KPI icon="truck" tone="blue" label="Toneladas extraídas hoy" value={fmt(tons)} unit="t" sub="Material con salida registrada" />
+            <KPI icon="box" tone="slate" label="Material a favor de la concesión (25%)" value={fmt(concesion)} unit="t" sub="Calculado sobre el total del día" />
+          </div>
+
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(360px,1fr))] gap-5">
+            {/* Guías pendientes */}
+            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden xl:col-span-1" style={{ gridColumn: 'span 1' }}>
+              <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+                <h3 className="font-extrabold text-slate-900">Guías pendientes de aprobación</h3>
+                <span className="text-xs font-bold bg-yellow-300 text-slate-900 rounded-full px-2.5 py-1">{pending.length}</span>
+              </div>
+              {pending.length === 0 ? (
+                <p className="p-8 text-center text-slate-600">No hay guías pendientes.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-100 text-slate-700 text-xs uppercase tracking-wide">
+                      <tr><th className="text-left px-5 py-2">Guía</th><th className="text-left px-2">Contrato</th><th className="text-left px-2">Placa</th><th className="text-right px-2">Carga</th><th className="px-5 py-2 text-right">Acción</th></tr>
+                    </thead>
+                    <tbody>
+                      {pending.map((g) => (
+                        <tr key={g.id} className="border-t border-slate-100">
+                          <td className="px-5 py-2"><p className="font-bold text-slate-900 mono text-xs">{g.id}</p><p className="text-xs text-slate-600">{g.hora}</p></td>
+                          <td className="px-2 font-semibold text-slate-800">{g.contrato}</td>
+                          <td className="px-2 mono font-bold text-slate-800">{g.placa}</td>
+                          <td className="px-2 text-right font-bold text-slate-900">{fmt(g.ton)} t</td>
+                          <td className="px-5 py-2">
+                            <div className="flex justify-end gap-2">
+                              <button onClick={() => decide(g, true)} className="min-h-[44px] px-4 rounded-xl bg-blue-700 text-white font-bold hover:bg-blue-800">Aprobar</button>
+                              <button onClick={() => decide(g, false)} className="min-h-[44px] px-3 rounded-xl bg-slate-200 text-slate-900 font-bold hover:bg-slate-300" aria-label={`Rechazar guía ${g.id}`}>Rechazar</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
+            {/* Columna derecha */}
+            <div className="space-y-5">
+              <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                <h3 className="font-extrabold text-slate-900">Reparto del material de hoy</h3>
+                <div className="mt-3 flex h-8 rounded-lg overflow-hidden" role="img" aria-label={`Mineros 75%, concesión 25%`}>
+                  <div className="bg-blue-700 flex items-center justify-center text-white text-xs font-bold" style={{ width: '75%' }}>Mineros 75%</div>
+                  <div className="hazard flex items-center justify-center" style={{ width: '25%' }}><span className="bg-yellow-300 text-slate-900 text-xs font-bold px-1.5 rounded">25%</span></div>
+                </div>
+                <div className="mt-2 flex justify-between text-sm text-slate-700"><span>{fmt(tons * 0.75)} t para subcontratistas</span><span className="font-bold">{fmt(concesion)} t concesión</span></div>
+                <h4 className="mt-5 text-sm font-bold text-slate-800">Toneladas por contrato</h4>
+                <div className="mt-2 space-y-2">
+                  {mineros.map((m) => (
+                    <div key={m.contrato} className="flex items-center gap-3 text-sm">
+                      <span className="w-12 font-semibold text-slate-800">{m.contrato}</span>
+                      <div className="flex-1 h-5 bg-slate-100 rounded"><div className="h-5 rounded bg-slate-700 transition-all" style={{ width: `${(m.ton / maxM) * 100}%` }} /></div>
+                      <span className="w-16 text-right font-bold text-slate-900">{fmt(m.ton)} t</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                <h3 className="font-extrabold text-slate-900">Actividad del punto de control</h3>
+                {log.length === 0 ? (
+                  <p className="mt-3 text-sm text-slate-600">Sin eventos nuevos. Registre una salida o retención desde la app del guardia (vista móvil) y aparecerá aquí.</p>
+                ) : (
+                  <ul className="mt-3 space-y-2">
+                    {log.slice(0, 5).map((e, i) => (
+                      <li key={i} className={`pop rounded-xl px-3 py-2 text-sm flex items-start gap-3 ${e.type === 'salida' ? 'bg-green-50 text-green-950' : 'bg-red-50 text-red-950'}`}>
+                        <Icon name={e.type === 'salida' ? 'check' : 'alert'} className="w-5 h-5 mt-0.5 shrink-0" stroke={3} />
+                        <div className="min-w-0">
+                          <p className="font-bold">{e.type === 'salida' ? 'Salida autorizada' : 'Vehículo retenido'} - <span className="mono">{e.placa}</span></p>
+                          <p className="text-xs">{e.type === 'salida' ? `${e.guia}, ${fmt(e.ton)} t` : e.motivo}</p>
+                          <p className="text-xs text-slate-600">{e.hora} - {e.synced ? 'Sincronizado' : 'Pendiente de sincronizar'}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+/* ---------- App ---------- */
+function App() {
+  const [view, setView] = useState('ambas');
+  const [offline, setOffline] = useState(true);
+  const [pending, setPending] = useState(PENDING_SEED);
+  const [mineros, setMineros] = useState(MINEROS_SEED);
+  const [log, setLog] = useState([]);
+  const [toast, setToast] = useState('');
+  const baseTons = MINEROS_SEED.reduce((a, m) => a + m.ton, 0);
+  const tons = mineros.reduce((a, m) => a + m.ton, 0);
+  const queue = log.filter((e) => !e.synced).length;
+
+  useEffect(() => {
+    if (!offline) setLog((l) => l.map((e) => ({ ...e, synced: true })));
+  }, [offline]);
+
+  const actions = {
+    exit: (qr, off) => {
+      setMineros((ms) => ms.map((m) => (m.contrato === qr.contrato ? { ...m, ton: m.ton + qr.ton } : m)));
+      setLog((l) => [{ type: 'salida', placa: qr.placa, guia: qr.guia, ton: qr.ton, hora: nowHM(), synced: !off }, ...l]);
+    },
+    hold: (qr, cam, motivo, off) => {
+      setLog((l) => [{ type: 'retenido', placa: cam.placa, guia: qr.guia, motivo, hora: nowHM(), synced: !off }, ...l]);
+    },
+  };
+
+  const tabs = [['ambas', 'Ambas vistas'], ['movil', 'Guardia (móvil)'], ['escritorio', 'Supervisor (escritorio)']];
+
+  return (
+    <div className="min-h-screen">
+      <header className="bg-slate-900 text-white">
+        <div className="hazard h-2" aria-hidden="true" />
+        <div className="max-w-[1700px] mx-auto px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-extrabold">Sistema Minero Híbrido - Odoo + IA</h1>
+            <p className="text-sm text-slate-300">Mockup interactivo. Datos de ejemplo. Escanee desde el móvil y vea el efecto en el panel del supervisor.</p>
+          </div>
+          <div className="flex gap-1 bg-slate-800 rounded-xl p-1" role="tablist">
+            {tabs.map(([k, l]) => (
+              <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)} className={`min-h-[44px] px-4 rounded-lg text-sm font-semibold ${view === k ? 'bg-yellow-300 text-slate-900' : 'text-slate-200 hover:bg-slate-700'}`}>{l}</button>
+            ))}
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-[1700px] mx-auto p-5">
+        <div className={view === 'ambas' ? 'flex flex-col 2xl:flex-row gap-8 items-start' : ''}>
+          {(view === 'ambas' || view === 'movil') && (
+            <div className={view === 'ambas' ? 'w-full 2xl:w-[390px] shrink-0' : ''}>
+              <PhoneApp offline={offline} setOffline={setOffline} queue={queue} actions={actions} />
+            </div>
+          )}
+          {(view === 'ambas' || view === 'escritorio') && (
+            <div className="flex-1 min-w-0 w-full overflow-x-auto">
+              <div className="min-w-[860px]">
+                <Dashboard pending={pending} setPending={setPending} tons={tons} mineros={mineros} log={log} queue={queue} offline={offline} toast={toast} setToast={setToast} />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
